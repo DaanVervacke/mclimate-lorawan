@@ -1,4 +1,4 @@
-# MClimate LoRaWAN
+# mclimate-lorawan
 
 Read MClimate thermostatic devices through ChirpStack or The Things Stack using
 `lorawan-connection`.
