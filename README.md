@@ -1,4 +1,4 @@
-# MClimate LoRaWAN
+# mclimate-lorawan
 
 Read MClimate devices through ChirpStack or The Things Stack using
 [`lorawan-connection`](https://github.com/home-assistant-libs/lorawan-connection).
