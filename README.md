@@ -1,43 +1,38 @@
-# mclimate-lorawan
+# MClimate LoRaWAN
 
-Read MClimate thermostatic devices through ChirpStack or The Things Stack using
-`lorawan-connection`.
+Read MClimate devices through ChirpStack or The Things Stack using
+[`lorawan-connection`](https://github.com/home-assistant-libs/lorawan-connection).
 
-| Model                 | Readings                                                              | Automatic discovery |
-| --------------------- | --------------------------------------------------------------------- | ------------------- |
-| Vicki                 | Target/sensor temperature, humidity, valve openness, motor, battery   | ChirpStack, TTS     |
-| T-Valve               | Water/ambient temperature, valve state, flood and tamper flags        | TTS                 |
-| Wireless Thermostat   | Target/sensor temperature, humidity, lux, PIR, battery                 | TTS                 |
-| Fan Coil Thermostat   | Target/sensor temperature, humidity, fan speeds, valve, device status | TTS                 |
-| Melissa LoRaWAN       | Temperature, humidity, lux, PIR count, occupancy, power source        | Explicit Python use |
-| Thermostat            | Temperature, target temperature, relay status, battery                | Explicit Python use |
+| Model | Readings | Automatic discovery |
+| --- | --- | --- |
+| Vicki | Target temperature, air temperature, humidity, battery, valve opening, child lock | ChirpStack, TTS |
+| T-Valve | Water temperature, ambient temperature, valve state, battery | TTS |
+| Wireless Thermostat | Target temperature, air temperature, humidity, battery, light, PIR | TTS |
+| Fan Coil Thermostat | Target temperature, humidity, operational mode | TTS |
+| Melissa | Air temperature, humidity, battery, light | Explicit Python use |
+| Thermostat | Temperature, target temperature, battery status, relay status | Explicit Python use |
 
-Coverage follows the thermostatic device families in MClimate's
-`mclimate-payload-helper`. Melissa LoRaWAN and the LoRaWAN Thermostat have no
-automatic discovery identifiers: they are absent from the TTN and ChirpStack
-catalogs checked for this release. Use their `decode()` methods directly, or
-subclass them with your deployment's model identity.
+Coverage follows MClimate's TypeScript payload parsers
+([mclimate-payload-helper](https://github.com/MClimateSolutions/mclimate-payload-helper)),
+with test vectors pinned to their Jest suite. Melissa and the Thermostat have no
+automatic discovery identifiers: they are absent from the checked catalogs. Use
+their `decode()` methods directly, or subclass them with your deployment's model
+identity. Thermostatic uplinks arrive on different FPorts per family; each model
+filters its own. This library decodes uplinks and does not implement device
+configuration commands.
 
-This library decodes uplink keepalives and does not implement device
-configuration commands. Uplinks that answer a downlink command carry a
-keepalive at the end; the command-response prefix is ignored and only the
-keepalive readings are exposed.
-
-Raw payloads are decoded locally; a server-side payload formatter is not
-required.
+Raw payloads are decoded locally; a server-side payload formatter is not required.
 
 ## Command-line reader
 
-The `mclimate-lorawan` command lists devices or prints readings as they
-arrive. Install uv to run it with `uvx`, or use
-`pip install "mclimate-lorawan[chirpstack]"` for ChirpStack and
-`pip install "mclimate-lorawan[tts]"` for The Things Stack.
+The `mclimate-lorawan` command lists devices or prints readings as they arrive.
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) to run it
+with `uvx`, or use `pip install "mclimate-lorawan[chirpstack]"` for ChirpStack
+and `pip install "mclimate-lorawan[tts]"` for The Things Stack.
 
 ### ChirpStack
 
-Use a ChirpStack v4 gRPC endpoint, an API key, and the tenant UUID. The
-endpoint must expose the gRPC API; forwarding only the web interface is not
-sufficient.
+Use a ChirpStack v4 gRPC endpoint, an API key, and the tenant UUID.
 
 ```sh
 export CHIRPSTACK_API_KEY="your-api-key"
@@ -54,9 +49,8 @@ to discover its accessible tenants.
 
 ### The Things Stack
 
-Use the Application Server gRPC endpoint and an application API key with
-device read and application traffic read rights. Specify each application
-explicitly.
+Use the Application Server gRPC endpoint and an application API key with device
+read and application traffic read rights. Specify each application explicitly.
 
 ```sh
 export TTS_API_KEY="your-api-key"
@@ -82,17 +76,14 @@ works.
 ## Python
 
 ```python
-from lorawan_connection.backend.chirpstack import ChirpStackConnection
+from lorawan_connection.backend.tts import TTSConnection
 from mclimate_lorawan import MClimateDeviceCollection
 
-
-async def list_sensors(
-    endpoint: str, api_key: str, tenant: str, application: str
-) -> None:
-    connection = ChirpStackConnection(
+async def list_devices(endpoint: str, api_key: str, application: str) -> None:
+    connection = TTSConnection(
         endpoint,
         api_key,
-        tenant_id=tenant,
+        identity_server=endpoint,
         application_ids=[application],
         network_id=endpoint,
     )
@@ -107,18 +98,33 @@ async def list_sensors(
         await connection.close()
 ```
 
-The collection also accepts a `TTSConnection`. Subscribe with
+The collection also accepts a `ChirpStackConnection`. Subscribe with
 `devices.subscribe_device_added(listener)` and `device.add_update_listener(listener)`
 to receive live readings. Values remain `None` until the device reports them.
 
 ### Reading measurements
 
-Each model exposes typed properties such as `Vicki.target_temperature`,
-`Vicki.sensor_temperature`, and `Vicki.valve_openness`. All models also expose
-`measurements[name]`, whose `Measurement` contains `value` and the keepalive
-structure. Direct decoding raises `ValueError` for malformed frames; live
-models discard those payloads atomically. Older readings cannot replace newer
-values of the same measurement.
+Existing properties such as `Vicki.target_temperature`,
+`Vicki.relative_humidity`, and `WirelessThermostat.illuminance` remain available.
+All models also expose `measurements[name]`, whose `Measurement` contains `value`
+and `timestamp`. Use `device.measurement_value(name)` for direct access.
+
+```python
+from mclimate_lorawan import Vicki
+
+payload = Vicki.decode(bytes.fromhex("811BAF4BAB2A129030"))
+for measurement in payload.measurements:
+    print(measurement.name, measurement.value)
+# target_temperature 27
+# sensor_temperature 25.88238397927527
+# ...
+```
+
+Uplinks that answer a downlink command carry a keepalive at the end; the
+command-response prefix is ignored per the keepalive-only scope. Direct decoding
+raises `ValueError` for malformed frames. Live models discard those payloads
+atomically. Partial updates retain other readings; older readings cannot replace
+newer values of the same measurement.
 
 ## Development
 
@@ -130,10 +136,17 @@ uv run mypy
 uv build
 ```
 
-Tests include keepalive vectors pinned from MClimate's
-`mclimate-payload-helper` Jest suite, live device models fed with those
-payloads, and malformed or stale message handling.
+Tests include reference outputs for every decoder family, pinned to MClimate's
+upstream Jest vectors, plus malformed and out-of-order message coverage.
+
+## Releases
+
+The source version stays `0.0.0`. Publishing a GitHub release named `0.1.0`, for
+example, builds that version and publishes it to PyPI through Trusted Publishing.
+See [RELEASING.md](RELEASING.md) for the one-time publisher setup.
 
 ## License
 
-Apache-2.0. Wire formats derived from MClimate's `mclimate-payload-helper`.
+Apache-2.0. Ported from MClimate's
+[mclimate-payload-helper](https://github.com/MClimateSolutions/mclimate-payload-helper)
+TypeScript decoders.
