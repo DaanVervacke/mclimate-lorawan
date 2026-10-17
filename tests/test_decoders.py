@@ -37,9 +37,7 @@ class TestVicki:
         assert result["valve_openness"] == 23
 
     def test_keepalive_with_command_response_prefix(self):
-        result = values(
-            bytes.fromhex("56011203042643811BAF4BAB2A129030"), decode_vicki
-        )
+        result = values(bytes.fromhex("56011203042643811BAF4BAB2A129030"), decode_vicki)
         assert result["target_temperature"] == 27
         assert result["sensor_temperature"] == pytest.approx(25.88238397927527)
         assert result["motor_range"] == 554
