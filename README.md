@@ -79,6 +79,7 @@ works.
 from lorawan_connection.backend.tts import TTSConnection
 from mclimate_lorawan import MClimateDeviceCollection
 
+
 async def list_devices(endpoint: str, api_key: str, application: str) -> None:
     connection = TTSConnection(
         endpoint,
